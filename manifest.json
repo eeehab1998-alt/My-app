@@ -8,14 +8,14 @@
   "description": "نظام السلة الذكية - مدرسة روّاد الغد النموذجية أريحا",
   "icons": [
     {
-      "src": "https://images.unsplash.com/photo-1560887961-9ba4b6d5d242?w=192&q=80",
+      "src": "icon.png",
       "sizes": "192x192",
-      "type": "image/jpeg"
+      "type": "image/png"
     },
     {
-      "src": "https://images.unsplash.com/photo-1560887961-9ba4b6d5d242?w=512&q=80",
+      "src": "icon.png",
       "sizes": "512x512",
-      "type": "image/jpeg"
+      "type": "image/png"
     }
   ]
 }
