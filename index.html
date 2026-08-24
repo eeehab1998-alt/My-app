@@ -1,8 +1,6 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-    <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#1e3a8a">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Smart Cart - مدرسة روّاد الغد النموذجية أريحا</title>
@@ -107,11 +105,11 @@
                 "JERICHO001": { 
                     name: "سوبر ماركت روّاد الغد", password: "1234", currency: "شيكل", id: "JERICHO001", 
                     categories: ["مشروبات", "معلبات", "مكسرات", "حلويات", "ألبان", "منظفات"],
-                    products: initialProducts
+                    products: initialProducts,
+                    cart: { items: [], buyer: null, status: 'active', exitCode: null, auditRequired: false },
+                    transactions: []
                 } 
-            },
-            transactions: [],
-            cart: { items: [], buyer: null, status: 'active', exitCode: null, auditRequired: false } 
+            }
         };
 
         const App = () => {
@@ -124,7 +122,7 @@
             const clientRef = useRef(null);
             const dbRef = useRef(initialDB);
             const isSyncedRef = useRef(false);
-            const DB_TOPIC = "smart_cart_jericho_v14_global_sync";
+            const DB_TOPIC = "smart_cart_jericho_v15_isolated_sync";
 
             useEffect(() => { dbRef.current = cloudDB; }, [cloudDB]);
 
@@ -178,7 +176,6 @@
                 }
             };
 
-            const updateCart = (newCart) => pushToCloud({ ...dbRef.current, cart: newCart });
             const updateMallData = (mallId, newMallData) => {
                 const newMalls = { ...dbRef.current.malls, [mallId]: newMallData };
                 pushToCloud({ ...dbRef.current, malls: newMalls });
@@ -188,7 +185,9 @@
                 setSession(newSession);
                 setView('app');
                 if (newSession.type === 'buyer') {
-                    updateCart({ items: [], buyer: { name: newSession.buyerName, phone: newSession.buyerPhone, ip: newSession.buyerIP, device: newSession.buyerDevice }, status: 'active', exitCode: null, auditRequired: false });
+                    const mall = dbRef.current.malls[newSession.mallId];
+                    const newCart = { items: [], buyer: { name: newSession.buyerName, phone: newSession.buyerPhone, ip: newSession.buyerIP, device: newSession.buyerDevice }, status: 'active', exitCode: null, auditRequired: false };
+                    updateMallData(newSession.mallId, { ...mall, cart: newCart });
                 }
             };
 
@@ -211,7 +210,7 @@
             if (view === 'register') return <RegisterScreen onBack={() => setView('staffLogin')} malls={cloudDB.malls} pushToCloud={pushToCloud} dbRef={dbRef} />;
 
             if (view === 'app' && session) {
-                const mallInfo = cloudDB.malls[session.mallId] || { name: 'متجر غير معروف', currency: 'شيكل', products: {}, categories: [] };
+                const mallInfo = cloudDB.malls[session.mallId] || { name: 'متجر غير معروف', currency: 'شيكل', products: {}, categories: [], cart: { items: [], buyer: null, status: 'active' }, transactions: [] };
 
                 return (
                     <div className="min-h-screen flex flex-col pb-10">
@@ -232,13 +231,13 @@
                         </header>
 
                         <main className="flex-1 p-3 md:p-8 max-w-7xl mx-auto w-full">
-                            {session.type === 'buyer' && <CartView mallInfo={mallInfo} cartData={cloudDB.cart} updateCart={updateCart} />}
-                            {session.type === 'staff' && session.role === 'cashier' && <SecurityView mallInfo={mallInfo} dbRef={dbRef} pushToCloud={pushToCloud} />}
-                            {session.type === 'staff' && session.role === 'owner' && <OwnerDashboard mallInfo={mallInfo} dbRef={dbRef} updateMallData={updateMallData} pushToCloud={pushToCloud} />}
+                            {session.type === 'buyer' && <CartView mallInfo={mallInfo} updateMallData={updateMallData} />}
+                            {session.type === 'staff' && session.role === 'cashier' && <SecurityView mallInfo={mallInfo} updateMallData={updateMallData} />}
+                            {session.type === 'staff' && session.role === 'owner' && <OwnerDashboard mallInfo={mallInfo} updateMallData={updateMallData} />}
                         </main>
                         
                         <footer className="text-center py-4 text-[10px] md:text-xs text-gray-400 border-t border-gray-100 mt-8">
-                             معرض فلسطين للعلوم والتكنولوجيا  - مدرسة روّاد الغد النموذجية - أريحا © 2024
+                            مشروع تخرج - مدرسة روّاد الغد النموذجية - أريحا © 2024
                         </footer>
                     </div>
                 );
@@ -371,7 +370,12 @@
             const submit = (e) => {
                 e.preventDefault();
                 if (malls[id.toUpperCase()]) { alert("مسجل مسبقاً!"); return; }
-                const newMall = { name, password: pass, currency: "شيكل", id: id.toUpperCase(), categories: ["عام"], products: {} };
+                const newMall = { 
+                    name, password: pass, currency: "شيكل", id: id.toUpperCase(), 
+                    categories: ["عام"], products: {},
+                    cart: { items: [], buyer: null, status: 'active', exitCode: null, auditRequired: false },
+                    transactions: []
+                };
                 pushToCloud({ ...dbRef.current, malls: { ...malls, [id.toUpperCase()]: newMall } });
                 setDone(true); setTimeout(onBack, 2000);
             };
@@ -394,7 +398,8 @@
             );
         };
 
-        const CartView = ({ mallInfo, cartData, updateCart }) => {
+        const CartView = ({ mallInfo, updateMallData }) => {
+            const cartData = mallInfo.cart;
             const [showScanner, setShowScanner] = useState(false);
             const [scanStatus, setScanStatus] = useState(null);
             const [activeCat, setActiveCat] = useState(mallInfo.categories[0] || "");
@@ -402,6 +407,8 @@
             const lastScanRef = useRef({ text: null, time: 0 });
 
             const totalPrice = cartData.items.reduce((s, i) => s + i.price * i.qty, 0);
+
+            const updateCart = (newCart) => updateMallData(mallInfo.id, { ...mallInfo, cart: newCart });
 
             const addProduct = (barcode) => {
                 if (cartData.status !== 'active') return;
@@ -618,9 +625,9 @@
             );
         };
 
-        const SecurityView = ({ mallInfo, dbRef, pushToCloud }) => {
-            const cart = dbRef.current.cart;
-            const transactions = dbRef.current.transactions;
+        const SecurityView = ({ mallInfo, updateMallData }) => {
+            const cart = mallInfo.cart;
+            const transactions = mallInfo.transactions || [];
             const totalPrice = cart.items.reduce((s, i) => s + i.price * i.qty, 0);
 
             const approveOrder = () => {
@@ -630,16 +637,12 @@
                     id: Date.now().toString(), 
                     mallId: mallInfo.id, buyer: cart.buyer, items: cart.items, total: totalPrice, date: new Date().toISOString(), auditRequired
                 }];
-                pushToCloud({
-                    ...dbRef.current,
-                    transactions: newTransactions,
-                    cart: { ...cart, status: 'approved', exitCode, auditRequired }
-                });
+                updateMallData(mallInfo.id, { ...mallInfo, transactions: newTransactions, cart: { ...cart, status: 'approved', exitCode, auditRequired } });
                 alert("✅ تمت الموافقة على الطلب، وتم حفظ البيانات في السجل المالي بنجاح.");
             };
 
             const clearCartForNewCustomer = () => {
-                pushToCloud({ ...dbRef.current, cart: { items: [], buyer: null, status: 'active', exitCode: null, auditRequired: false } });
+                updateMallData(mallInfo.id, { ...mallInfo, cart: { items: [], buyer: null, status: 'active', exitCode: null, auditRequired: false } });
             };
 
             return (
@@ -703,13 +706,13 @@
             );
         };
 
-        const OwnerDashboard = ({ mallInfo, dbRef, updateMallData, pushToCloud }) => {
-            const cloudDB = dbRef.current;
+        const OwnerDashboard = ({ mallInfo, updateMallData }) => {
             const [activeCategory, setActiveCategory] = useState(mallInfo.categories[0] || "");
             const [showProductForm, setShowProductForm] = useState(false);
             const [confirmDel, setConfirmDel] = useState(null); 
             const [confirmDelTx, setConfirmDelTx] = useState(null); 
             const [confirmClearAll, setConfirmClearAll] = useState(false); 
+            const [newCat, setNewCat] = useState(''); // لإضافة الأقسام
             
             const [pBarcode, setPBarcode] = useState('');
             const [pName, setPName] = useState('');
@@ -717,39 +720,45 @@
             const [pCategory, setPCategory] = useState(mallInfo.categories[0] || "");
             const [pImage, setPImage] = useState('');
 
-            const transactions = cloudDB.transactions.filter(tx => tx.mallId === mallInfo.id).reverse();
+            const transactions = mallInfo.transactions || [];
             const totalRevenue = transactions.reduce((s, t) => s + t.total, 0);
-            const liveCart = cloudDB.cart;
+            const liveCart = mallInfo.cart;
             const liveCartTotal = liveCart.items.reduce((s, i) => s + i.price * i.qty, 0);
 
             const approveOrder = () => {
                 const exitCode = Math.floor(100000 + Math.random() * 900000);
                 const auditRequired = Math.random() < 0.2;
-                const newTransactions = [...cloudDB.transactions, {
+                const newTransactions = [...transactions, {
                     id: Date.now().toString(), 
                     mallId: mallInfo.id, buyer: liveCart.buyer, items: liveCart.items, total: liveCartTotal, date: new Date().toISOString(), auditRequired
                 }];
-                pushToCloud({
-                    ...dbRef.current,
-                    transactions: newTransactions,
-                    cart: { ...liveCart, status: 'approved', exitCode, auditRequired }
-                });
+                updateMallData(mallInfo.id, { ...mallInfo, transactions: newTransactions, cart: { ...liveCart, status: 'approved', exitCode, auditRequired } });
                 alert("✅ تمت الموافقة على الطلب، وتم حفظ البيانات في السجل المالي بنجاح.");
             };
 
             const clearCartForNewCustomer = () => {
-                pushToCloud({ ...dbRef.current, cart: { items: [], buyer: null, status: 'active', exitCode: null, auditRequired: false } });
+                updateMallData(mallInfo.id, { ...mallInfo, cart: { items: [], buyer: null, status: 'active', exitCode: null, auditRequired: false } });
             };
 
             const deleteTransaction = (id) => {
-                const newTransactions = cloudDB.transactions.filter(tx => tx.id !== id);
-                pushToCloud({ ...dbRef.current, transactions: newTransactions });
+                const newTransactions = transactions.filter(tx => tx.id !== id);
+                updateMallData(mallInfo.id, { ...mallInfo, transactions: newTransactions });
                 setConfirmDelTx(null);
             };
 
             const clearAllTransactions = () => {
-                pushToCloud({ ...dbRef.current, transactions: [] });
+                updateMallData(mallInfo.id, { ...mallInfo, transactions: [] });
                 setConfirmClearAll(false);
+            };
+
+            // دالة إضافة قسم جديد
+            const addCategory = (e) => {
+                e.preventDefault();
+                if (!newCat.trim()) return;
+                if (mallInfo.categories.includes(newCat.trim())) { alert("القسم موجود مسبقاً"); return; }
+                updateMallData(mallInfo.id, { ...mallInfo, categories: [...mallInfo.categories, newCat.trim()] });
+                setNewCat('');
+                setActiveCategory(newCat.trim());
             };
 
             useEffect(() => { if (!mallInfo.categories.includes(activeCategory)) setActiveCategory(mallInfo.categories[0] || ""); }, [mallInfo.categories]);
@@ -844,6 +853,12 @@
                             </button>
                         </div>
 
+                        {/* نموذج إضافة قسم جديد (تم إعادته) */}
+                        <form onSubmit={addCategory} className="flex gap-2 mb-6 p-4 bg-blue-50/50 rounded-2xl border border-blue-100">
+                            <input type="text" value={newCat} onChange={e=>setNewCat(e.target.value)} placeholder="إضافة قسم جديد (مثال: منظفات)" className="w-full px-4 py-2 bg-white rounded-xl outline-none border border-blue-100 focus:ring-2 focus:ring-blue-500" required />
+                            <button type="submit" className="bg-blue-800 text-white px-6 py-2 rounded-xl font-bold text-sm whitespace-nowrap">إضافة القسم</button>
+                        </form>
+
                         {showProductForm && (
                             <form onSubmit={addProduct} className="bg-white p-3 md:p-6 rounded-xl md:rounded-2xl mb-6 grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 border-2 border-blue-200">
                                 <div className="md:col-span-2 text-base md:text-lg font-bold text-blue-900 border-b pb-2 mb-2">تفاصيل المنتج الجديد</div>
@@ -861,7 +876,9 @@
                                 </div>
                                 <div>
                                     <label className="block text-[10px] md:text-xs font-bold text-gray-600 mb-1">القسم</label>
-                                    <input type="text" value={pCategory} onChange={e=>setPCategory(e.target.value)} className="w-full px-3 py-2 md:px-4 md:py-2 bg-blue-50 rounded-lg outline-none text-sm" required />
+                                    <select value={pCategory} onChange={e=>setPCategory(e.target.value)} className="w-full px-3 py-2 md:px-4 md:py-2 bg-blue-50 rounded-lg outline-none text-sm">
+                                        {mallInfo.categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                                    </select>
                                 </div>
                                 <div className="md:col-span-2">
                                     <label className="block text-[10px] md:text-xs font-bold text-gray-600 mb-1">صورة المنتج</label>
@@ -970,15 +987,6 @@
         };
 
         ReactDOM.render(<App />, document.getElementById('root'));
-    </script>
-    <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('sw.js')
-            .then(reg => console.log('Service Worker registered!', reg))
-            .catch(err => console.log('Service Worker registration failed:', err));
-        });
-      }
     </script>
 </body>
 </html>
